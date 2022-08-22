@@ -241,7 +241,7 @@ void USLTilemapSubsystem::UpdatePatternCellEntropy(FPatternCell& Cell)
 	if (NumAllowedPatterns < 1)
 	{
 		//UE_LOG(LogTemp, Warning, TEXT("Observing cell at index %d and it has entropy %d and current bIsObserved is %d"), IndexOfPatternCellToObserve, PatternCells[IndexOfPatternCellToObserve].Entropy,PatternCells[IndexOfPatternCellToObserve].bIsObserved);
-		UE_LOG(LogTemp, Warning, TEXT("FUCK SHIT ASS"));
+		UE_LOG(LogTemp, Warning, TEXT("Ya done goofed"));
 	}
 }
 
