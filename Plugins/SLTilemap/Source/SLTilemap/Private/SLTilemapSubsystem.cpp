@@ -48,7 +48,7 @@ bool USLTilemapSubsystem::StepWFC()
 	for (auto& Cell : PatternCells)
 	{
 		//Reset bVisited while we're here.
-		Cell.bVisited = false;
+		//Cell.bVisited = false;
 		if (!Cell.bIsObserved && Cell.Entropy < LowestEntropy && Cell.Entropy > 0)
 		{
 			LowestEntropy = Cell.Entropy;
@@ -63,7 +63,7 @@ bool USLTilemapSubsystem::StepWFC()
 
 		ObservePatternCell(*CellToObserve);
 		UpdatePatternCellEntropy(*CellToObserve);
-		CellToObserve->bVisited = true;
+		//CellToObserve->bVisited = true;
 
 
 		//Propagate new state
@@ -80,7 +80,7 @@ bool USLTilemapSubsystem::StepWFC()
 			//Get next cell in queue
 			FPatternCell* ThisCell;
 			CellsToUpdate.Dequeue(ThisCell);
-			ThisCell->bVisited = true;
+			//ThisCell->bVisited = true;
 
 			//cache Entropy
 			const int32 OldEntropy = ThisCell->Entropy;
@@ -101,7 +101,8 @@ bool USLTilemapSubsystem::StepWFC()
 				//Enque neighbors
 				for (auto& Neighbor : ThisCell->PointersToNeighbors)
 				{
-					if (!Neighbor->bIsObserved && !Neighbor->bVisited)
+					//if (!Neighbor->bIsObserved && !Neighbor->bVisited)
+					if (!Neighbor->bIsObserved)
 					{
 						CellsToUpdate.Enqueue(Neighbor);
 					}
@@ -141,7 +142,8 @@ void USLTilemapSubsystem::GeneratePatterns()
 	{
 		for (int32 i = 0; i < PatternData.Width - PatternSize + 1; i++)
 		{
-			AllPossiblePatterns.AddUnique(USLTilemapLib::GetTilemapSection(PatternData, i, j, PatternSize, PatternSize));
+			//AllPossiblePatterns.AddUnique(USLTilemapLib::GetTilemapSection(PatternData, i, j, PatternSize, PatternSize));
+			AllPossiblePatterns.Add(USLTilemapLib::GetTilemapSection(PatternData, i, j, PatternSize, PatternSize));
 		}
 	}
 	
@@ -151,11 +153,11 @@ void USLTilemapSubsystem::GeneratePatterns()
 	{
 		FTileMap Pattern = AllPossiblePatterns[i];
 		Pattern = USLTilemapLib::RotateTilemap(Pattern);
-		AllPossiblePatterns.AddUnique(Pattern);
+		AllPossiblePatterns.Add(Pattern);
 		Pattern = USLTilemapLib::RotateTilemap(Pattern);
-		AllPossiblePatterns.AddUnique(Pattern);
+		AllPossiblePatterns.Add(Pattern);
 		Pattern = USLTilemapLib::RotateTilemap(Pattern);
-		AllPossiblePatterns.AddUnique(Pattern);
+		AllPossiblePatterns.Add(Pattern);
 	}
 	
 
@@ -165,7 +167,7 @@ void USLTilemapSubsystem::GeneratePatterns()
 	{
 		FTileMap Pattern = AllPossiblePatterns[i];
 		Pattern = USLTilemapLib::MirrorTilemap(Pattern);
-		AllPossiblePatterns.AddUnique(Pattern);
+		AllPossiblePatterns.Add(Pattern);
 	}
 	
 }

@@ -114,8 +114,8 @@ struct FPatternCell
 	int32 Entropy = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WFC")
 	bool bIsObserved = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WFC")
-	bool bVisited = false;
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WFC")
+	//bool bVisited = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WFC")
 	TArray<int32> IndicesOfNeighbors;
 	TArray<FPatternCell*> PointersToNeighbors;
