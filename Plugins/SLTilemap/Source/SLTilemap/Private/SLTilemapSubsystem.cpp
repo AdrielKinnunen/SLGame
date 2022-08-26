@@ -12,62 +12,66 @@ void USLTilemapSubsystem::Deinitialize()
 {
 }
 
-void USLTilemapSubsystem::BPGeneratePatterns()
-{
-	GeneratePatterns();
-}
-
-void USLTilemapSubsystem::BPInitPatternCells()
-{
-	InitPatternCells();
-}
-
-void USLTilemapSubsystem::BPUpdateAllPatternCells()
-{
-	UpdateAllPatternCells();
-}
-
 bool USLTilemapSubsystem::InitializeWFC()
 {
-	//Bail out if initial data is no good
-	if (!(USLTilemapLib::IsTilemapValid(MapData) && USLTilemapLib::IsTilemapValid(PatternData)))
+	const double StartTime = FPlatformTime::Seconds();
+	if (!(USLTilemapLib::IsTilemapValid(OutputTileMap) && USLTilemapLib::IsTilemapValid(InputTileMap)))
 	{
 		return false;
 	}
 	GeneratePatterns();
 	InitPatternCells();
-	UpdateAllPatternCells();
+	for (auto& Cell : Cells)
+	{
+		CellUpdateAllowedPatterns(Cell);
+		CellUpdateEntropy(Cell);
+	}
+	const double EndTime = FPlatformTime::Seconds();
+	const double TotalTimems = 1000*(EndTime - StartTime);
+	UE_LOG(LogTemp, Warning, TEXT("Initialization took %f ms"), TotalTimems);
+
 	return true;
 }
 
 bool USLTilemapSubsystem::StepWFC()
 {
+
+	const double StartTime = FPlatformTime::Seconds();
+
 	//Find unobserved PatternCell with lowest entropy
-	FPatternCell* CellToObserve = nullptr;
-	int32 LowestEntropy = AllPossiblePatterns.Num() + 1;
-	for (auto& Cell : PatternCells)
+	FCell* CellToObserve = nullptr;
+	float LowestEntropy = 1000000000.0;
+	for (auto& Cell : Cells)
 	{
-		//Reset bVisited while we're here.
-		//Cell.bVisited = false;
-		if (!Cell.bIsObserved && Cell.Entropy < LowestEntropy && Cell.Entropy > 0)
+		if (!Cell.bIsObserved && Cell.Entropy < LowestEntropy)
 		{
 			LowestEntropy = Cell.Entropy;
 			CellToObserve = &Cell;
 		}
 	}
 
-	//Observe Pattern cell with lowest entropy if found
-	if (CellToObserve != nullptr)
+	//Check for bad entropy found during search
+	if (LowestEntropy < 1)
 	{
-		//UE_LOG(LogTemp, Warning, TEXT("Observing cell at %d,%d and it has entropy %d"), CellToObserve -> x, CellToObserve -> y, CellToObserve -> Entropy);
+		UE_LOG(LogTemp, Warning, TEXT("Cell at %d, %d has bad entropy %f and was found during lowest entropy search"), CellToObserve -> X, CellToObserve -> Y, CellToObserve -> Entropy);
+		return false;
+	}
+	
+	if (CellToObserve == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("No unobserved cell was found"));
+		return false;
+	}
 
+	//Observe Pattern cell with lowest entropy if found
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Observing cell at %d,%d and it has entropy %d"), CellToObserve -> X, CellToObserve -> Y, CellToObserve -> Entropy);
 		ObservePatternCell(*CellToObserve);
-		UpdatePatternCellEntropy(*CellToObserve);
-		//CellToObserve->bVisited = true;
-
-
+		//UpdatePatternCellEntropy(*CellToObserve);
+		
 		//Propagate new state
-		TQueue<FPatternCell*> CellsToUpdate;
+		//Enqueue unobserved neighbors
+		TQueue<FCell*> CellsToUpdate;
 		for (auto& Neighbor : CellToObserve->PointersToNeighbors)
 		{
 			if (!Neighbor->bIsObserved)
@@ -75,33 +79,37 @@ bool USLTilemapSubsystem::StepWFC()
 				CellsToUpdate.Enqueue(Neighbor);
 			}
 		}
+
+		//Update Cells in queue, enquing their unobserved neighbors if cell changes
 		while (!CellsToUpdate.IsEmpty())
 		{
 			//Get next cell in queue
-			FPatternCell* ThisCell;
+			FCell* ThisCell;
 			CellsToUpdate.Dequeue(ThisCell);
-			//ThisCell->bVisited = true;
 
 			//cache Entropy
 			const int32 OldEntropy = ThisCell->Entropy;
-			UpdatePatternCellEntropy(*ThisCell);
+			CellUpdateAllowedPatterns(*ThisCell);
+			CellUpdateEntropy(*ThisCell);
 			const int32 NewEntropy = ThisCell->Entropy;
 
+			//Fail if cell has bad entropy
+			if (NewEntropy < 0)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Cell at %d, %d has bad entropy %f during propagation"), ThisCell -> X, ThisCell -> Y, ThisCell -> Entropy);
+				return false;
+			}
+			
 			//Did the cell's entropy change?
 			if (OldEntropy != NewEntropy)
 			{
+				//Update Map Data with new cell state
 				const FTileMap CombinedPatterns = OrCellPatternsTogether(*ThisCell);
 				WritePatternToMapData(CombinedPatterns, ThisCell->X, ThisCell->Y);
-				//If Entropy = 1 then it's collapsed
-				if (NewEntropy == 1)
-				{
-					ThisCell->bIsObserved = true;
-				}
 
-				//Enque neighbors
+				//Enque unobserved neighbors
 				for (auto& Neighbor : ThisCell->PointersToNeighbors)
 				{
-					//if (!Neighbor->bIsObserved && !Neighbor->bVisited)
 					if (!Neighbor->bIsObserved)
 					{
 						CellsToUpdate.Enqueue(Neighbor);
@@ -109,8 +117,11 @@ bool USLTilemapSubsystem::StepWFC()
 				}
 			}
 		}
-		return false;
 	}
+	const double EndTime = FPlatformTime::Seconds();
+	const double TotalTimems = 1000*(EndTime - StartTime);
+	UE_LOG(LogTemp, Warning, TEXT("Step took %f ms"), TotalTimems);
+
 	return true;
 }
 
@@ -120,131 +131,142 @@ bool USLTilemapSubsystem::RunWFC()
 	{
 		return false;
 	}
-	int32 StepCount = 0;
-	while (StepCount < 100000)
-	{
-		StepWFC();
-		StepCount++;
-	}
-	
+	while (StepWFC())	{}
 	return true;
 }
 
 
+void USLTilemapSubsystem::AddPatternToPatterns(const FTileMap& Pattern)
+{
+	const int Index = Patterns.Find(Pattern);
+	if (Index > -1)
+	{
+		Counts[Index]++;
+	}
+	else
+	{
+		Patterns.Add(Pattern);
+		Counts.Add(1);
+	}
+}
 
 void USLTilemapSubsystem::GeneratePatterns()
 {
 	//Generate Patterns
-
-	AllPossiblePatterns.Empty();
-	
-	for (int32 j = 0; j < PatternData.Height - PatternSize + 1; j++)
+	Patterns.Empty();
+	Counts.Empty();
+	for (int32 j = 0; j < InputTileMap.Height - PatternSize + 1; j++)
 	{
-		for (int32 i = 0; i < PatternData.Width - PatternSize + 1; i++)
+		for (int32 i = 0; i < InputTileMap.Width - PatternSize + 1; i++)
 		{
-			//AllPossiblePatterns.AddUnique(USLTilemapLib::GetTilemapSection(PatternData, i, j, PatternSize, PatternSize));
-			AllPossiblePatterns.Add(USLTilemapLib::GetTilemapSection(PatternData, i, j, PatternSize, PatternSize));
+			FTileMap Pattern = USLTilemapLib::GetTilemapSection(InputTileMap, i, j, PatternSize, PatternSize);
+			AddPatternToPatterns(Pattern);
+			Pattern = USLTilemapLib::RotateTilemap(Pattern);
+			AddPatternToPatterns(Pattern);
+			Pattern = USLTilemapLib::RotateTilemap(Pattern);
+			AddPatternToPatterns(Pattern);
+			Pattern = USLTilemapLib::RotateTilemap(Pattern);
+			AddPatternToPatterns(Pattern);
+			Pattern = USLTilemapLib::MirrorTilemap(Pattern);
+			AddPatternToPatterns(Pattern);
+			Pattern = USLTilemapLib::RotateTilemap(Pattern);
+			AddPatternToPatterns(Pattern);
+			Pattern = USLTilemapLib::RotateTilemap(Pattern);
+			AddPatternToPatterns(Pattern);
+			Pattern = USLTilemapLib::RotateTilemap(Pattern);
+			AddPatternToPatterns(Pattern);
 		}
 	}
 	
-	//Add Rotations
-	int32 InitialPatternCount = AllPossiblePatterns.Num();
-	for (int32 i = 0; i < InitialPatternCount; ++i)
+	float SumCounts = 0;
+	for (const auto& Count : Counts)
 	{
-		FTileMap Pattern = AllPossiblePatterns[i];
-		Pattern = USLTilemapLib::RotateTilemap(Pattern);
-		AllPossiblePatterns.Add(Pattern);
-		Pattern = USLTilemapLib::RotateTilemap(Pattern);
-		AllPossiblePatterns.Add(Pattern);
-		Pattern = USLTilemapLib::RotateTilemap(Pattern);
-		AllPossiblePatterns.Add(Pattern);
+		SumCounts += Count;
 	}
-	
 
-	//Add Reflections
-	InitialPatternCount = AllPossiblePatterns.Num();
-	for (int32 i = 0; i < InitialPatternCount; ++i)
+	P.SetNum(Counts.Num());
+	PlogP.SetNum(Counts.Num());
+	for (int32 i = 0; i < Counts.Num(); i++)
 	{
-		FTileMap Pattern = AllPossiblePatterns[i];
-		Pattern = USLTilemapLib::MirrorTilemap(Pattern);
-		AllPossiblePatterns.Add(Pattern);
+		const float Probability = Counts[i] / SumCounts;
+		P[i] =  Probability;
+		PlogP[i] = Probability * log2(Probability);
 	}
-	
 }
 
 void USLTilemapSubsystem::InitPatternCells()
 {
-	PatternCells.Empty();
-	TArray<bool> PatternIsAllowed;
-	PatternIsAllowed.Init(true, AllPossiblePatterns.Num());
-	const int32 PatternCellsWidth = MapData.Width - PatternSize + 1;
-	const int32 PatternCellsHeight = MapData.Height - PatternSize + 1;
-	const FTileMap DummyTileMap = FTileMap(PatternCellsWidth, PatternCellsHeight);
-
+	Cells.Empty();
+	const int32 PatternCellsWidth = OutputTileMap.Width - PatternSize + 1;
+	const int32 PatternCellsHeight = OutputTileMap.Height - PatternSize + 1;
+	const int32 NeighborDistance = PatternSize - 1;
+	
+	TArray<int32> AllowedPatternIndices;
+	for (int32 i = 0; i < Patterns.Num(); i++)
+	{
+		AllowedPatternIndices.Add(i);
+	}
+	
+	//Create PatternCells and initialize them
 	for (int32 j = 0; j < PatternCellsHeight; j++)
 	{
 		for (int32 i = 0; i < PatternCellsWidth; i++)
 		{
-			TArray<int32> Neighbors;
-			for (int32 y = -1; y <= 1; y++)
+			Cells.Add(FCell(i, j, AllowedPatternIndices));
+		}
+	}
+
+	//Set each PatternCell's Neighbors array
+	for (auto& Cell : Cells)
+	{
+		TArray<FCell*> Neighbors;
+		for (int32 Y = -NeighborDistance; Y <= NeighborDistance; Y++)
+		{
+			for (int32 X = -NeighborDistance; X <= NeighborDistance; X++)
 			{
-				for (int32 x = -1; x <= 1; x++)
+				const int32 NeighborX = Cell.X + X;
+				const int32 NeighborY = Cell.Y + Y;
+				const int32 NeighborIndex = USLTilemapLib::XYToIndex(PatternCellsWidth, NeighborX, NeighborY);
+				if (NeighborX > -1 && NeighborX < PatternCellsWidth && NeighborY > -1 && NeighborY < PatternCellsHeight && !(X == 0 && Y == 0))
 				{
-					const int32 NeighborX = i + x;
-					const int32 NeighborY = j + y;
-					if (NeighborX > -1 && NeighborX < PatternCellsWidth && NeighborY > -1 && NeighborY < PatternCellsHeight && !(x == 0 && y == 0))
-					{
-						Neighbors.Add(USLTilemapLib::TileMapXYToIndex(DummyTileMap, NeighborX, NeighborY));
-					}
+					Neighbors.Add(&Cells[NeighborIndex]);
 				}
 			}
-			PatternCells.Add(FPatternCell(i, j, Neighbors, PatternIsAllowed));
 		}
-	}
-	for (auto& Cell : PatternCells)
-	{
-	//Set pointers to neighbors
-	//UE_LOG(LogTemp, Warning, TEXT("Cell at %d,%d has %d neighbors"), Cell.X, Cell.Y, Cell.IndicesOfNeighbors.Num());
-	for (const auto& NeighborIndex : Cell.IndicesOfNeighbors)
-		{
-			//UE_LOG(LogTemp, Warning, TEXT("Neighbor index is %d"), NeighborIndex);
-			//UE_LOG(LogTemp, Warning, TEXT("Neighbor index is %d"), &PatternCells[NeighborIndex]);
-			Cell.PointersToNeighbors.Add(&PatternCells[NeighborIndex]);
-		}
+		Cell.PointersToNeighbors = Neighbors;
 	}
 }
 
-void USLTilemapSubsystem::UpdateAllPatternCells()
+void USLTilemapSubsystem::CellUpdateAllowedPatterns(FCell& Cell)
 {
-	for (auto& Cell : PatternCells)
+	for (int32 i = Cell.AllowedPatternIndices.Num() - 1; i >= 0; i--)
 	{
-		UpdatePatternCellEntropy(Cell);
+		//Does pattern still fit?
+		const int32 PatternIndex = Cell.AllowedPatternIndices[i];
+		if (!CanPatternFitAtThisLocation(Patterns[PatternIndex], Cell.X, Cell.Y))
+		{
+			Cell.AllowedPatternIndices.RemoveAt(i);
+		}
+	}
+	if (Cell.AllowedPatternIndices.Num() == 1)
+	{
+		Cell.bIsObserved = true;
 	}
 }
 
-void USLTilemapSubsystem::UpdatePatternCellEntropy(FPatternCell& Cell)
+void USLTilemapSubsystem::CellUpdateEntropy(FCell& Cell)
 {
-	int32 NumAllowedPatterns = 0;
-	for (int32 i = 0; i < Cell.bAllowedPatterns.Num(); i++)
+	/*
+	float Entropy = 0;
+	for (const auto& i : Cell.AllowedPatternIndices)
 	{
-		if (Cell.bAllowedPatterns[i]) //Don't check patterns already ruled out
-		{
-			if (CanPatternFitAtThisLocation(AllPossiblePatterns[i], Cell.X, Cell.Y)) //Does pattern still fit?
-			{
-				NumAllowedPatterns++;
-			}
-			else
-			{
-				Cell.bAllowedPatterns[i] = false;
-			}
-		}
+		Entropy -= PlogP[i];
 	}
-	Cell.Entropy = NumAllowedPatterns;
-	if (NumAllowedPatterns < 1)
-	{
-		//UE_LOG(LogTemp, Warning, TEXT("Observing cell at index %d and it has entropy %d and current bIsObserved is %d"), IndexOfPatternCellToObserve, PatternCells[IndexOfPatternCellToObserve].Entropy,PatternCells[IndexOfPatternCellToObserve].bIsObserved);
-		UE_LOG(LogTemp, Warning, TEXT("Ya done goofed"));
-	}
+	//float Entropy = 0;
+	//TempEntropy -= Probability * log2(Probability);
+	*/
+	
+	Cell.Entropy = Cell.AllowedPatternIndices.Num();
 }
 
 bool USLTilemapSubsystem::CanPatternFitAtThisLocation(const FTileMap& Pattern, const int32 x, const int32 y) const
@@ -253,7 +275,7 @@ bool USLTilemapSubsystem::CanPatternFitAtThisLocation(const FTileMap& Pattern, c
 	{
 		for (int32 i = 0; i < Pattern.Width; i++)
 		{
-			const uint8 MapTileState = USLTilemapLib::GetTileAtXY(MapData, x + i, y + j);
+			const uint8 MapTileState = USLTilemapLib::GetTileAtXY(OutputTileMap, x + i, y + j);
 			const uint8 PatternTileState = USLTilemapLib::GetTileAtXY(Pattern, i, j);
 			const uint8 Test = MapTileState & PatternTileState;
 			if (Test != PatternTileState)
@@ -272,39 +294,28 @@ void USLTilemapSubsystem::WritePatternToMapData(const FTileMap& Pattern, const i
 		for (int32 i = 0; i < Pattern.Width; i++)
 		{
 			const uint8 Temp = USLTilemapLib::GetTileAtXY(Pattern, i, j);
-			USLTilemapLib::SetTileAtXY(MapData, Temp,  x + i, y + j);
+			USLTilemapLib::SetTileAtXY(OutputTileMap, Temp,  x + i, y + j);
 		}
 	}
 }
 
-void USLTilemapSubsystem::ObservePatternCell(FPatternCell& CellToObserve)
+void USLTilemapSubsystem::ObservePatternCell(FCell& CellToObserve)
 {
-	TArray<int32> AllowedPatternIndices;
-	for (int32 i = 0; i < AllPossiblePatterns.Num(); i++)
-	{
-		if (CellToObserve.bAllowedPatterns[i])
-		{
-			AllowedPatternIndices.Add(i);
-		}
-	}
-	const int32 RandomIndex = FMath::RandRange(0, AllowedPatternIndices.Num() - 1);
-	const int32 IndexOfPatternToObserve = AllowedPatternIndices[RandomIndex];
-	const FTileMap ObservedPattern = AllPossiblePatterns[IndexOfPatternToObserve];
+	const int32 RandomIndex = FMath::RandRange(0, CellToObserve.AllowedPatternIndices.Num() - 1);
+	const int32 IndexOfPatternToObserve = CellToObserve.AllowedPatternIndices[RandomIndex];
+	const FTileMap ObservedPattern = Patterns[IndexOfPatternToObserve];
 	WritePatternToMapData(ObservedPattern, CellToObserve.X, CellToObserve.Y);
 	CellToObserve.bIsObserved = true;
 }
 
-FTileMap USLTilemapSubsystem::OrCellPatternsTogether(FPatternCell& Cell)
+FTileMap USLTilemapSubsystem::OrCellPatternsTogether(FCell& Cell)
 {
 	FTileMap Out = FTileMap(PatternSize, PatternSize, 0);
-	for (int32 i = 0; i < Cell.bAllowedPatterns.Num(); i++)
+	for (const auto& Index : Cell.AllowedPatternIndices)
 	{
-		if (Cell.bAllowedPatterns[i])
+		for (int32 i = 0; i < Out.Data.Num(); i++)
 		{
-			for (int32 j = 0; j < Out.Data.Num(); j++)
-			{
-				Out.Data[j] = Out.Data[j] | AllPossiblePatterns[i].Data[j];
-			}
+			Out.Data[i] = Out.Data[i] | Patterns[Index].Data[i];
 		}
 	}
 	return Out;

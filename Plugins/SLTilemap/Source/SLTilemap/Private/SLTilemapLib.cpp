@@ -11,14 +11,29 @@ int32 USLTilemapLib::TileMapIndexToX(const FTileMap& TileMap, const int32 Index)
 	return Index % TileMap.Width;
 }
 
+int32 USLTilemapLib::IndexToX(const int32 Width, const int32 Index)
+{
+	return Index % Width;
+}
+
 int32 USLTilemapLib::TileMapIndexToY(const FTileMap& TileMap, const int32 Index)
 {
 	return Index / TileMap.Width;
 }
 
-int32 USLTilemapLib::TileMapXYToIndex(const FTileMap& TileMap, const int32 x, const int32 y)
+int32 USLTilemapLib::IndexToY(const int32 Width, const int32 Index)
 {
-	return (y * TileMap.Width) + x;
+	return Index / Width;
+}
+
+int32 USLTilemapLib::TileMapXYToIndex(const FTileMap& TileMap, const int32 X, const int32 Y)
+{
+	return (Y * TileMap.Width) + X;
+}
+
+int32 USLTilemapLib::XYToIndex(const int32 Width, const int32 X, const int32 Y)
+{
+	return (Y * Width) + X;
 }
 
 uint8 USLTilemapLib::GetDataAtIndex(const FTileMap& TileMap, const int32 Index)
@@ -26,15 +41,15 @@ uint8 USLTilemapLib::GetDataAtIndex(const FTileMap& TileMap, const int32 Index)
 	return TileMap.Data[Index];
 }
 
-void USLTilemapLib::SetTileAtXY(FTileMap& TileMap, const uint8 Tile, const int32 x, const int32 y)
+void USLTilemapLib::SetTileAtXY(FTileMap& TileMap, const uint8 Tile, const int32 X, const int32 Y)
 {
-	const int32 TileIndex = TileMapXYToIndex(TileMap, x, y);
+	const int32 TileIndex = TileMapXYToIndex(TileMap, X, Y);
 	TileMap.Data[TileIndex] = Tile;
 }
 
-uint8 USLTilemapLib::GetTileAtXY(const FTileMap& TileMap, const int32 x, const int32 y)
+uint8 USLTilemapLib::GetTileAtXY(const FTileMap& TileMap, const int32 X, const int32 Y)
 {
-	return TileMap.Data[TileMapXYToIndex(TileMap, x, y)];
+	return TileMap.Data[TileMapXYToIndex(TileMap, X, Y)];
 }
 
 UTexture2D* USLTilemapLib::TileMapToTexture(FTileMap& TileMap)
@@ -43,7 +58,7 @@ UTexture2D* USLTilemapLib::TileMapToTexture(FTileMap& TileMap)
 	const int32 Width = TileMap.Width;
 	const int32 Height = TileMap.Height;
 	const int32 PixelCount = Width * Height;
-	for (auto& Tile:TileMap.Data)
+	for (const auto& Tile:TileMap.Data)
 	{
 		Colors.Add(TileToColor(Tile));
 	}

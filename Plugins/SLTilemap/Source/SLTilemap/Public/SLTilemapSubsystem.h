@@ -20,29 +20,25 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 	//End Subsystem
+
+
+	UPROPERTY(BlueprintReadWrite, Category = "SLTilemap")
+	FTileMap InputTileMap;
+	UPROPERTY(BlueprintReadWrite, Category = "SLTilemap")
+	FTileMap OutputTileMap;
 	
-	UPROPERTY(BlueprintReadWrite, Category = "SLTilemap")
-	FTileMap MapData;
-	UPROPERTY(BlueprintReadWrite, Category = "SLTilemap")
-	FTileMap PatternData;
 	UPROPERTY(BlueprintReadWrite, Category = "SLTilemap")
 	int32 PatternSize = 3;
 	UPROPERTY(BlueprintReadOnly, Category = "SLTilemap")
-	TArray<FTileMap> AllPossiblePatterns;
+	TArray<FTileMap> Patterns;
 	UPROPERTY(BlueprintReadOnly, Category = "SLTilemap")
-	TArray<FPatternCell> PatternCells;
+	TArray<int32> Counts;
 	UPROPERTY(BlueprintReadOnly, Category = "SLTilemap")
-	UTexture2D* MapDataTexture;
+	TArray<float> P;
 	UPROPERTY(BlueprintReadOnly, Category = "SLTilemap")
-	UTexture2D* PatternDataTexture;
-
-	UFUNCTION(BlueprintCallable, Category = "SLTilemap")
-	void BPGeneratePatterns();
-	UFUNCTION(BlueprintCallable, Category = "SLTilemap")
-	void BPInitPatternCells();
-	UFUNCTION(BlueprintCallable, Category = "SLTilemap")
-	void BPUpdateAllPatternCells();
-
+	TArray<float> PlogP;
+	UPROPERTY(BlueprintReadOnly, Category = "SLTilemap")
+	TArray<FCell> Cells;
 	
 	UFUNCTION(BlueprintCallable, Category = "SLTilemap")
 	bool InitializeWFC();
@@ -55,10 +51,11 @@ public:
 private:
 	void GeneratePatterns();
 	void InitPatternCells();
-	void UpdateAllPatternCells();
-	void UpdatePatternCellEntropy(FPatternCell& Cell);
+	void CellUpdateAllowedPatterns(FCell& Cell);
+	void AddPatternToPatterns(const FTileMap& Pattern);
+	void CellUpdateEntropy(FCell& Cell);
 	void WritePatternToMapData(const FTileMap& Pattern, int32 x, int32 y);
 	bool CanPatternFitAtThisLocation(const FTileMap& Pattern, int32 x, int32 y) const;
-	void ObservePatternCell(FPatternCell& CellToObserve);
-	FTileMap OrCellPatternsTogether(FPatternCell& Cell);	
+	void ObservePatternCell(FCell& CellToObserve);
+	FTileMap OrCellPatternsTogether(FCell& Cell);	
 };
